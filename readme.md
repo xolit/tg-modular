@@ -1,20 +1,38 @@
 # 🚀 Telegram Backend API
 
-## 📌 Overview
+## 📌 What is this?
 
-This backend allows you to:
+This backend lets you:
 
-* Authenticate using Bearer token
-* Connect Telegram via OTP
-* Send messages via Telegram
-* Fetch contacts and messages
-* Check and mark messages as read
+* Login to Telegram using OTP
+* Send messages
+* Get contacts
+* Read messages
+* Automatically mark messages as read
 
 ---
 
-## 🔐 Authentication
+# 👨‍💻 Author
 
-All protected routes require:
+Built with ❤️ by **Abdul Basit**
+
+📸 Instagram: @xolit_edits
+🌐 Portfolio: https://gogamestore.vercel.app
+
+---
+
+# ⭐ Support
+
+If this project helped you, consider giving it a ⭐ on GitHub and sharing it!
+
+---
+
+
+---
+
+# 🔐 Authentication
+
+All requests require a token:
 
 ```
 Authorization: Bearer YOUR_API_TOKEN
@@ -22,27 +40,28 @@ Authorization: Bearer YOUR_API_TOKEN
 
 ---
 
-## 📲 Telegram Login Flow
+# 📲 Telegram Login (IMPORTANT)
 
-### 1. Send OTP
-
-**POST /tg-send-otp**
-
-**Response:**
-```json
-{
-  "success": true,
-  "message": "OTP sent"
-}
-```
+You only need to login **once**. After that, you save a session and reuse it.
 
 ---
 
-### 2. Verify OTP
+## 🧭 Step-by-Step Login Flow
+
+### 1️⃣ Send OTP
+
+**POST /tg-send-otp**
+
+👉 This sends an OTP to your Telegram number.
+
+---
+
+### 2️⃣ Verify OTP
 
 **POST /tg-verify-otp**
 
-**Request:**
+**Body:**
+
 ```json
 {
   "code": "12345"
@@ -50,49 +69,96 @@ Authorization: Bearer YOUR_API_TOKEN
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
-  "message": "Telegram logged in"
+  "session": "LONG_SESSION_STRING"
 }
 ```
 
-**Error Response (2FA Required):**
+⚠️ **IMPORTANT:**
+You will receive a `session` string — this is your permanent login key.
+
+---
+
+## 💾 How to Save `TG_SESSION`
+
+This is the most important step.
+
+---
+
+### ✅ Option 1 — Backend (.env) ✅ BEST
+
+1. Copy the session from response:
+
+```
+"session": "ABC123..."
+```
+
+2. Paste into your `.env`:
+
+```
+TG_SESSION=ABC123...
+```
+
+3. Restart server
+
+✅ Done — no OTP needed again
+
+---
+
+### ✅ Option 2 — Frontend Storage
+
+You can store it in:
+
+* localStorage
+* database
+* your backend API
+
+Example:
+
+```js
+localStorage.setItem("tg_session", session);
+```
+
+Then send it to backend later if needed.
+
+---
+
+### ❌ If you DON'T save it
+
+* You must login with OTP every time
+* Session will be lost on restart
+
+---
+
+## 🔐 2FA (if enabled)
+
+If you get:
+
 ```json
 {
-  "success": false,
   "need2FA": true
 }
 ```
 
----
-
-### 3. 2FA (if enabled)
+Call:
 
 **POST /tg-2fa**
 
-**Request:**
 ```json
 {
   "password": "your_password"
 }
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "message": "2FA success"
-}
-```
-
 ---
 
-## 📩 Send Message
+# 📩 Send Message
 
 **POST /send**
 
-**Request:**
 ```json
 {
   "to": "me",
@@ -100,163 +166,81 @@ Authorization: Bearer YOUR_API_TOKEN
 }
 ```
 
-**Response:**
-```json
-{
-  "success": true
-}
-```
-
 ---
 
-## 📇 Get Contacts
+# 📇 Get Contacts
 
 **GET /contacts**
 
-**Response:**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "123456789",
-      "name": "John Doe",
-      "username": "johndoe",
-      "phone": "+1234567890"
-    }
-  ]
-}
-```
-
 ---
 
-## 💬 Get Last Messages
+# 💬 Get Last Chats
 
 **GET /last-messages**
 
-**Response:**
-```json
-{
-  "success": true,
-  "count": 5,
-  "data": [
-    {
-      "chat": {
-        "id": "123456789",
-        "name": "John Doe",
-        "username": "johndoe",
-        "type": "user"
-      },
-      "lastMessage": {
-        "id": "123",
-        "text": "Hello there!",
-        "date": 1640995200
-      },
-      "unreadCount": 2,
-      "pinned": false
-    }
-  ]
-}
-```
-
 ---
 
-## 📥 Check New Messages (Auto Mark Read)
+# 📥 Check New Messages
 
 **GET /check-messages**
 
-**Response:**
-```json
-{
-  "success": true,
-  "count": 3,
-  "data": [
-    {
-      "chatId": "123456789",
-      "unreadCount": 5,
-      "lastMessage": {
-        "text": "Hey, check this out!",
-        "date": 1640995200
-      }
-    }
-  ]
-}
-```
+✅ Also marks messages as **read automatically**
 
 ---
 
-## � Test Route
+# 🧪 Test Route
 
 **GET /me**
 
-**Response:**
-```json
-{
-  "success": true
-}
+Sends message to yourself
+
+---
+
+# ⚙️ Environment Variables
+
+Create `.env`:
+
+```
+TG_API_ID=
+TG_API_HASH=
+PHONE_NUMBER=
+API_TOKEN=
+TG_SESSION=   ← (leave empty first time)
 ```
 
 ---
 
-## ⚙️ Environment Variables
+# 🚀 Run Project
 
-```
-TG_API_ID=your_telegram_api_id
-TG_API_HASH=your_telegram_api_hash
-PHONE_NUMBER=+91xxxxxxxxxx
-API_TOKEN=your_secret_token
-```
-
----
-
-## 🚀 Getting Started
-
-1. Install dependencies:
 ```bash
 npm install
+node index.js
 ```
 
-2. Set up your `.env` file with the required variables
-
-3. Start the server:
-```bash
-npm run dev
-```
-
-4. Server runs on `http://localhost:3000`
-
----
-
-## 📝 Notes
-
-- All routes require Bearer token authentication
-- Telegram routes require successful login first
-- Messages are automatically marked as read when checked
+Server:
 
 ```
-TG_API_ID=your_id
-TG_API_HASH=your_hash
-PHONE_NUMBER=+91xxxxxxxxxx
+http://localhost:5050
 ```
 
 ---
 
-## 🔐 Security Notes
-* Never expose `.env`
+# 🔐 Security Tips
+
+* Never upload `.env` to GitHub
+* Use strong `API_TOKEN`
 * Use HTTPS in production
 
 ---
 
-## 🚀 Run Server
+# 🧠 Simple Explanation
 
-```
-node index.js
-```
-
-Server runs on:
-
-```
-http://localhost:3000
-```
+* OTP login → gives `session`
+* Save session → no login again
+* Session = your Telegram login key
 
 ---
+
+# ✅ Done
+
+You now have a fully working Telegram API 🚀
