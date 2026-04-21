@@ -102,7 +102,10 @@ app.post("/tg-verify-otp", authMiddleware, async (req, res) => {
 
     state.isLoggedIn = true;
 
-    fs.writeFileSync(config.sessionFile, client.session.save());
+    // Create session file if it doesn't exist and save session
+    const sessionData = client.session.save();
+    fs.writeFileSync(config.sessionFile, sessionData);
+    console.log("✅ Session saved to", config.sessionFile);
 
     res.json({ success: true, message: "Telegram logged in" });
 
@@ -133,7 +136,10 @@ app.post("/tg-2fa", authMiddleware, async (req, res) => {
 
     state.isLoggedIn = true;
 
-    fs.writeFileSync(config.sessionFile, client.session.save());
+    // Create session file if it doesn't exist and save session
+    const sessionData = client.session.save();
+    fs.writeFileSync(config.sessionFile, sessionData);
+    console.log("✅ Session saved to", config.sessionFile);
 
     res.json({ success: true, message: "2FA success" });
 
