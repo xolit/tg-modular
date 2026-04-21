@@ -2,119 +2,59 @@ require("dotenv").config();
 const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
-const bcrypt = require("bcrypt");
-const { askAI } = require("./ai");
 const { TelegramClient, Api } = require("telegram");
 const { StringSession } = require("telegram/sessions");
+const { authMiddleware, tgAuth } = require("./middlewares/BasicMIDDLEWARES");
+const { state, config } = require("./Global-vars");
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      const allowedOrigins = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://ai.studio/apps/3b14344b-7532-43b2-afcc-74cf76c90532", // ⚠️ http typo fixed if needed
+        "https://ai-assistant-livid-iota.vercel.app",
+      ];
+
+      // ✅ Allow Postman / server-to-server (no origin)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        return callback(new Error("CORS not allowed"), false);
+      }
+    },
+  })
+);
 
 // =========================
 // 🔐 ENV CHECK
 // =========================
-if (!process.env.API_USER) throw new Error("Missing API_USER");
-if (!process.env.API_PASS) throw new Error("Missing API_PASS");
-if (!process.env.API_TOKEN_HASH) throw new Error("Missing API_TOKEN_HASH");
-
-// =========================
-// 📱 TELEGRAM CONFIG
-// =========================
-const apiId = Number(process.env.TG_API_ID);
-const apiHash = process.env.TG_API_HASH;
-const phone = process.env.PHONE_NUMBER;
-
-const sessionFile = "session.txt";
+if (!process.env.API_TOKEN) throw new Error("Missing API_TOKEN");
 
 // Load session
-let sessionString = "";
-if (fs.existsSync(sessionFile)) {
-  sessionString = fs.readFileSync(sessionFile, "utf8");
+if (fs.existsSync(config.sessionFile)) {
+  state.sessionString = fs.readFileSync(config.sessionFile, "utf8");
 }
 
-const stringSession = new StringSession(sessionString);
+const stringSession = new StringSession(state.sessionString);
 
-const client = new TelegramClient(stringSession, apiId, apiHash, {
+const client = new TelegramClient(stringSession, config.apiId, config.apiHash, {
   connectionRetries: 5,
 });
 
-// =========================
-// 🔄 STATE
-// =========================
-let isLoggedIn = false;
-let phoneCodeHash = null;
-
 // Restore session
 (async () => {
-  if (sessionString) {
+  if (state.sessionString) {
     await client.connect();
-    isLoggedIn = true;
+    state.isLoggedIn = true;
     console.log("✅ Telegram session restored");
   }
 })();
-
-// =========================
-// 🔐 AUTH MIDDLEWARE (HASHED)
-// =========================
-async function authMiddleware(req, res, next) {
-  try {
-    const authHeader = req.headers["authorization"];
-
-    if (!authHeader) {
-      return res.status(401).json({ error: "Missing Authorization header" });
-    }
-
-    const [type, token] = authHeader.split(" ");
-
-    if (type !== "Bearer" || !token) {
-      return res.status(401).json({ error: "Invalid Authorization format" });
-    }
-
-    const isValid = await bcrypt.compare(
-      token,
-      process.env.API_TOKEN_HASH
-    );
-
-    if (!isValid) {
-      return res.status(403).json({ error: "Invalid token" });
-    }
-
-    next();
-  } catch (err) {
-    console.log(err);
-    res.status(500).json({ error: "Auth failed" });
-  }
-}
-
-// =========================
-// 📱 TELEGRAM AUTH CHECK
-// =========================
-function tgAuth(req, res, next) {
-  if (!isLoggedIn && !sessionString) {
-    return res.status(401).json({ error: "Telegram not logged in" });
-  }
-  next();
-}
-
-// =========================
-// 🔓 LOGIN ROUTE
-// =========================
-app.post("/login", (req, res) => {
-  const { username, password } = req.body;
-
-  if (
-    username === process.env.API_USER &&
-    password === process.env.API_PASS
-  ) {
-    return res.json({
-      success: true,
-      token: "mysecrettoken", // 🔑 same token you hashed
-    });
-  }
-
-  return res.status(401).json({ error: "Invalid credentials" });
-});
 
 // =========================
 // 📲 TELEGRAM LOGIN FLOW
@@ -127,14 +67,14 @@ app.post("/tg-send-otp", authMiddleware, async (req, res) => {
 
     const result = await client.invoke(
       new Api.auth.SendCode({
-        phoneNumber: phone,
-        apiId: apiId,
-        apiHash: apiHash,
+        phoneNumber: config.phone,
+        apiId: config.apiId,
+        apiHash: config.apiHash,
         settings: new Api.CodeSettings({}),
       })
     );
 
-    phoneCodeHash = result.phoneCodeHash;
+    state.phoneCodeHash = result.phoneCodeHash;
 
     res.json({ success: true, message: "OTP sent" });
   } catch (err) {
@@ -154,15 +94,15 @@ app.post("/tg-verify-otp", authMiddleware, async (req, res) => {
 
     await client.invoke(
       new Api.auth.SignIn({
-        phoneNumber: phone,
-        phoneCodeHash,
+        phoneNumber: config.phone,
+        phoneCodeHash: state.phoneCodeHash,
         phoneCode: code,
       })
     );
 
-    isLoggedIn = true;
+    state.isLoggedIn = true;
 
-    fs.writeFileSync(sessionFile, client.session.save());
+    fs.writeFileSync(config.sessionFile, client.session.save());
 
     res.json({ success: true, message: "Telegram logged in" });
 
@@ -191,9 +131,9 @@ app.post("/tg-2fa", authMiddleware, async (req, res) => {
       })
     );
 
-    isLoggedIn = true;
+    state.isLoggedIn = true;
 
-    fs.writeFileSync(sessionFile, client.session.save());
+    fs.writeFileSync(config.sessionFile, client.session.save());
 
     res.json({ success: true, message: "2FA success" });
 
@@ -248,24 +188,173 @@ app.get("/contacts", authMiddleware, tgAuth, async (req, res) => {
   }
 });
 
-// =========================
-// 🤖 AI
-// =========================
-app.get("/ai", authMiddleware, async (req, res) => {
+app.get("/last-messages", authMiddleware, tgAuth, async (req, res) => {
   try {
-    const { msg } = req.query;
+    const result = await client.invoke(
+      new Api.messages.GetDialogs({
+        offsetDate: 0,
+        offsetId: 0,
+        offsetPeer: new Api.InputPeerEmpty(),
+        limit: 20,
+        hash: 0,
+      })
+    );
 
-    if (!msg) {
-      return res.status(400).json({ error: "Missing msg" });
+    const dialogs = result.dialogs;
+    const users = result.users;
+    const chats = result.chats;
+    const messages = result.messages;
+
+    // 🔥 Helper to resolve peer (user/group/channel)
+    function getPeerInfo(peer) {
+      if (!peer) return null;
+
+      if (peer.userId) {
+        const user = users.find(
+          (u) => u.id?.value === peer.userId?.value
+        );
+        return {
+          id: peer.userId?.value?.toString(),
+          name: `${user?.firstName || ""} ${user?.lastName || ""}`.trim(),
+          username: user?.username || null,
+          type: "user",
+        };
+      }
+
+      if (peer.chatId) {
+        const chat = chats.find(
+          (c) => c.id?.value === peer.chatId?.value
+        );
+        return {
+          id: peer.chatId?.value?.toString(),
+          name: chat?.title || "Group",
+          type: "group",
+        };
+      }
+
+      if (peer.channelId) {
+        const channel = chats.find(
+          (c) => c.id?.value === peer.channelId?.value
+        );
+        return {
+          id: peer.channelId?.value?.toString(),
+          name: channel?.title || "Channel",
+          type: "channel",
+        };
+      }
+
+      return null;
     }
 
-    const response = await askAI(msg);
+    // 🔥 Build response
+    const formatted = dialogs.map((dialog) => {
+      const msg = messages.find(
+        (m) => m.id?.value === dialog.topMessage?.value
+      );
 
-    res.json({ success: true, response });
+      const peer = getPeerInfo(dialog.peer);
+
+      return {
+        chat: peer,
+        lastMessage: {
+          id: msg?.id?.value?.toString() || null,
+          text: msg?.message || "",
+          date: msg?.date || null,
+        },
+        unreadCount: dialog.unreadCount || 0,
+        pinned: dialog.pinned || false,
+      };
+    });
+
+    res.json({
+      success: true,
+      count: formatted.length,
+      data: formatted,
+    });
 
   } catch (err) {
     console.log(err);
-    res.status(500).json({ error: "AI failed" });
+    res.status(500).json({ error: "Failed to fetch messages" });
+  }
+});
+
+// =========================
+// 📥 CHECK NEW MESSAGES + MARK READ
+// =========================
+app.get("/check-messages", authMiddleware, tgAuth, async (req, res) => {
+  try {
+    const result = await client.invoke(
+      new Api.messages.GetDialogs({
+        offsetDate: 0,
+        offsetId: 0,
+        offsetPeer: new Api.InputPeerEmpty(),
+        limit: 20,
+        hash: 0,
+      })
+    );
+
+    const dialogs = result.dialogs || [];
+    const messages = result.messages || [];
+
+    const unreadChats = [];
+
+    for (const dialog of dialogs) {
+      // ✅ Skip if no unread
+      if (!dialog.unreadCount || dialog.unreadCount === 0) continue;
+
+      // ✅ Skip broken dialogs
+      if (!dialog.peer || !dialog.topMessage) continue;
+
+      let entity;
+
+      // 🔥 SAFEST WAY → get valid peer
+      try {
+        entity = await client.getInputEntity(dialog.peer);
+      } catch (e) {
+        console.log("⚠️ Skipping invalid peer");
+        continue;
+      }
+
+      // ✅ Find last message
+      const msg = messages.find((m) => m.id === dialog.topMessage);
+
+      // 🔥 MARK AS READ
+      try {
+        await client.invoke(
+          new Api.messages.ReadHistory({
+            peer: entity,
+            maxId: dialog.topMessage,
+          })
+        );
+      } catch (e) {
+        console.log("⚠️ Failed to mark read");
+      }
+
+      unreadChats.push({
+        chatId:
+          dialog.peer.userId?.value?.toString() ||
+          dialog.peer.chatId?.value?.toString() ||
+          dialog.peer.channelId?.value?.toString() ||
+          "unknown",
+
+        unreadCount: dialog.unreadCount,
+
+        lastMessage: {
+          text: msg?.message || "",
+          date: msg?.date || null,
+        },
+      });
+    }
+
+    res.json({
+      success: true,
+      count: unreadChats.length,
+      data: unreadChats,
+    });
+
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ error: "Failed to check messages" });
   }
 });
 
@@ -273,7 +362,8 @@ app.get("/ai", authMiddleware, async (req, res) => {
 // 🧪 TEST
 // =========================
 app.get("/me", authMiddleware, tgAuth, async (req, res) => {
-  await client.sendMessage("me", { message: "Hello 🚀" });
+  const {message} = req.body;
+  await client.sendMessage("me", { message: message || "Hello, From Telegram BACKEND (Abdul Basit) 🚀" });
   res.json({ success: true });
 });
 
